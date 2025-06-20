@@ -164,14 +164,20 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, ho
 
     prediction_dates = [last_date + timedelta(days=i+1) for i in range(days_to_forecast)]
 
-    predictions_df = pd.DataFrame([
-        {
+    prediction_data = []
+    for d, p in zip(prediction_dates, predictions):
+        is_holiday = 1 if holiday_dates and d.date() in holiday_dates else 0
+        is_weekend = 1 if d.weekday() >= 5 else 0
+        prediction_data.append({
             'date': d.strftime('%d/%m/%Y'),
             'predicted_quantity': p['predicted_quantity'],
-            'predicted_amount': p['predicted_amount']
-        }
-        for d, p in zip(prediction_dates, predictions)
-    ])
+            'predicted_amount': p['predicted_amount'],
+            'is_weekend': is_weekend,
+            'is_holiday': is_holiday,
+            'standard_price':standard_price
+        })
+
+    predictions_df = pd.DataFrame(prediction_data)
 
     total_forecasted_quantity = round(sum(p['predicted_quantity'] for p in predictions), 2)
     total_forecasted_amount = round(sum(p['predicted_amount'] for p in predictions), 2) if standard_price else None
