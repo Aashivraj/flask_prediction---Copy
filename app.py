@@ -55,24 +55,37 @@ def predict():
         if not isinstance(product_ids, list):
             product_ids = [product_ids]
 
-        if not (start_date_str and end_date_str):
-            return jsonify({
-                'status': 2,
-                'message': 'Both start_date and end_date are required.',
-                'data': []
-            }), 200
-
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-        holiday_dates_raw = data.get('holiday_dates', [])
+        holiday_dates_raw = data.get('filter', {}).get('holiday_dates', [])
         holiday_dates = [datetime.strptime(date, "%Y-%m-%d").date() for date in holiday_dates_raw]
 
-        if start_date >= end_date:
-            return jsonify({
-                'status': 2,
-                'message': 'start_date must be before end_date.',
-                'data': []
-            }), 200
+        # If holiday_dates are provided, override start_date and days_to_forecast logic
+        if holiday_dates:
+            forecast_dates = sorted(holiday_dates)
+            days_to_forecast = len(forecast_dates)
+            start_date = forecast_dates[0]
+            end_date = forecast_dates[-1]
+            use_holiday_filter_only = True
+        else:
+            if not (start_date_str and end_date_str):
+                return jsonify({
+                    'status': 2,
+                    'message': 'Both start_date and end_date are required when holiday_dates are not given.',
+                    'data': []
+                }), 200
+
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+            if start_date > end_date:
+                return jsonify({
+                    'status': 2,
+                    'message': 'start_date must be before end_date.',
+                    'data': []
+                }), 200
+
+            days_to_forecast = (end_date - start_date).days + 1
+            use_holiday_filter_only = False
+
 
         days_to_forecast = (end_date - start_date).days + 1
 
@@ -100,10 +113,15 @@ def predict():
                     engine, product_id, store_id, total_forecasted_quantity
                 )
 
-                filtered_predictions = predictions_df[
-                    (pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date >= start_date) &
-                    (pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date <= end_date)
-                ]
+                if use_holiday_filter_only:
+                    filtered_predictions = predictions_df[
+                        pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date.isin(holiday_dates)
+                    ]
+                else:
+                    filtered_predictions = predictions_df[
+                        (pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date >= start_date) &
+                        (pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date <= end_date)
+                    ]
 
                 result[str(product_id)] = {
                     'predictions': filtered_predictions.to_dict(orient='records'),
