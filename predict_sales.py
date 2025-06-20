@@ -7,10 +7,10 @@ from sqlalchemy import create_engine
 
 SEQUENCE_LENGTH = 7
 MODEL_PATHS = {
-    'hybrid_model': 'models/hybrid_sales_model_0.keras',
-    'scaler_tab': 'models/scaler_tabular_0.pkl',
-    'scaler_seq': 'models/scaler_sequence_0.pkl',
-    'scaler_y': 'models/scaler_target_0.pkl'
+    'hybrid_model': 'models/hybrid_sales_model_t.keras',
+    'scaler_tab': 'models/scaler_tabular_t.pkl',
+    'scaler_seq': 'models/scaler_sequence_t.pkl',
+    'scaler_y': 'models/scaler_target_t.pkl'
 }
 
 def load_artifacts():
@@ -70,7 +70,7 @@ def clean_and_preprocess(df):
 
     return df
 
-def generate_future_features(start_date, days, product_df):
+def generate_future_features(start_date, days, product_df, holiday_dates=None):
     medians = {
         'price_ratio': product_df['price_ratio'].median(),
         'average_selling_price': product_df['average_selling_price'].median(),
@@ -82,6 +82,7 @@ def generate_future_features(start_date, days, product_df):
     current_date = start_date
     for _ in range(days):
         current_date += timedelta(days=1)
+        is_holiday = 1 if holiday_dates and current_date.date() in holiday_dates else 0
         features.append([
             current_date.day,
             current_date.month,
@@ -94,13 +95,14 @@ def generate_future_features(start_date, days, product_df):
             current_date.timetuple().tm_yday,
             medians['average_selling_price'],
             medians['standard_price'],
-            medians['average_items_in_order']
+            medians['average_items_in_order'],
+            is_holiday 
         ])
 
     columns = [
         'day', 'month', 'year', 'day_of_week', 'is_weekend', 'quarter',
         'season', 'price_ratio', 'day_of_year', 'average_selling_price',
-        'standard_price', 'average_items_in_order'
+        'standard_price', 'average_items_in_order', 'is_holiday'
     ]
 
     return pd.DataFrame(features, columns=columns)
@@ -117,7 +119,7 @@ def get_standard_price(engine, product_id):
         return float(result['standard_price'].iloc[0])
     return None
 
-def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None):
+def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, holiday_dates=None):
     model, scaler_tab, scaler_seq, scaler_y = load_artifacts()
 
     engine = create_mysql_connection()
@@ -138,7 +140,7 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None):
     else:
         last_date = max(product_df['sale_date'].max(), pd.Timestamp(datetime.today().date()))
 
-    future_features = generate_future_features(last_date, days_to_forecast, product_df)
+    future_features = generate_future_features(last_date, days_to_forecast, product_df, holiday_dates)
 
     for day in range(days_to_forecast):
         tab_features = future_features.iloc[day].values.reshape(1, -1)

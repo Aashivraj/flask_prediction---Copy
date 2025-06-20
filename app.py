@@ -64,6 +64,8 @@ def predict():
 
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        holiday_dates_raw = data.get('holiday_dates', [])
+        holiday_dates = [datetime.strptime(date, "%Y-%m-%d").date() for date in holiday_dates_raw]
 
         if start_date >= end_date:
             return jsonify({
@@ -81,7 +83,7 @@ def predict():
             try:
 
                 predictions_df, total_forecasted_quantity, total_forecasted_amount, engine, product_name = predict_sales(
-                    product_id, store_id=store_id, days_to_forecast=days_to_forecast, start_date=start_date
+                    product_id, store_id=store_id, days_to_forecast=days_to_forecast, start_date=start_date, holiday_dates=holiday_dates
                 )
 
                 print(f"Product ID: {product_id}, Store ID: {store_id}")
