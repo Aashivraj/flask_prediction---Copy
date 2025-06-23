@@ -70,7 +70,7 @@ def clean_and_preprocess(df):
 
     return df
 
-def generate_future_features(start_date, days, product_df, holiday_dates=None):
+def generate_future_features(start_date, days, product_df, holiday_dates=None, custom_dates=None):
     medians = {
         'price_ratio': product_df['price_ratio'].median(),
         'average_selling_price': product_df['average_selling_price'].median(),
@@ -79,10 +79,10 @@ def generate_future_features(start_date, days, product_df, holiday_dates=None):
     }
 
     features = []
-    current_date = start_date
-    for _ in range(days):
-        current_date += timedelta(days=1)
-        is_holiday = 1 if holiday_dates and current_date.date() in holiday_dates else 0
+    dates = custom_dates if custom_dates else [start_date + timedelta(days=i + 1) for i in range(days)]
+
+    for current_date in dates:
+        is_holiday = 1 if holiday_dates and current_date in holiday_dates else 0
         features.append([
             current_date.day,
             current_date.month,
@@ -105,7 +105,8 @@ def generate_future_features(start_date, days, product_df, holiday_dates=None):
         'standard_price', 'average_items_in_order', 'is_holiday'
     ]
 
-    return pd.DataFrame(features, columns=columns)
+    return pd.DataFrame(features, columns=columns), dates
+
 
 def get_standard_price(engine, product_id):
     query = f"""
@@ -140,7 +141,9 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, ho
     else:
         last_date = max(product_df['sale_date'].max(), pd.Timestamp(datetime.today().date()))
 
-    future_features = generate_future_features(last_date, days_to_forecast, product_df, holiday_dates)
+    future_features, future_dates = generate_future_features(
+        last_date, days_to_forecast, product_df, holiday_dates, custom_dates=holiday_dates if holiday_dates else None
+    )
 
     for day in range(days_to_forecast):
         tab_features = future_features.iloc[day].values.reshape(1, -1)
@@ -162,11 +165,12 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, ho
 
         sequence = np.append(sequence[1:], pred)
 
-    prediction_dates = [last_date + timedelta(days=i+1) for i in range(days_to_forecast)]
+    prediction_dates = future_dates
+
 
     prediction_data = []
     for d, p in zip(prediction_dates, predictions):
-        is_holiday = 1 if holiday_dates and d.date() in holiday_dates else 0
+        is_holiday = 1 if holiday_dates and d in holiday_dates else 0
         is_weekend = 1 if d.weekday() >= 5 else 0
         prediction_data.append({
             'date': d.strftime('%d/%m/%Y'),
@@ -174,7 +178,7 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, ho
             'predicted_amount': p['predicted_amount'],
             'is_weekend': is_weekend,
             'is_holiday': is_holiday,
-            'standard_price':standard_price
+            'standard_price': standard_price
         })
 
     predictions_df = pd.DataFrame(prediction_data)

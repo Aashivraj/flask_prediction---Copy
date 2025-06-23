@@ -41,6 +41,8 @@ def login():
             'data': []
         }), 200
 
+
+
 @app.route('/predict', methods=['POST'])
 @jwt_required()
 def predict():
@@ -55,21 +57,25 @@ def predict():
         if not isinstance(product_ids, list):
             product_ids = [product_ids]
 
-        holiday_dates_raw = data.get('filter', {}).get('holiday_dates', [])
-        holiday_dates = [datetime.strptime(date, "%Y-%m-%d").date() for date in holiday_dates_raw]
+        holidays_raw = data.get('filters', {}).get('holidays', [])
+        holiday_dict = {
+            datetime.strptime(h['holiday_date'], "%Y-%m-%d").date(): h['holiday_name']
+            for h in holidays_raw if 'holiday_date' in h and 'holiday_name' in h
+        }
+        holiday_dates = list(holiday_dict.keys())
+        use_holiday_filter_only = len(holiday_dates) > 0
 
-        # If holiday_dates are provided, override start_date and days_to_forecast logic
-        if holiday_dates:
+
+        if use_holiday_filter_only:
             forecast_dates = sorted(holiday_dates)
             days_to_forecast = len(forecast_dates)
             start_date = forecast_dates[0]
             end_date = forecast_dates[-1]
-            use_holiday_filter_only = True
         else:
             if not (start_date_str and end_date_str):
                 return jsonify({
                     'status': 2,
-                    'message': 'Both start_date and end_date are required when holiday_dates are not given.',
+                    'message': 'Both start_date and end_date are required when holidays are not given.',
                     'data': []
                 }), 200
 
@@ -84,19 +90,18 @@ def predict():
                 }), 200
 
             days_to_forecast = (end_date - start_date).days + 1
-            use_holiday_filter_only = False
-
-
-        days_to_forecast = (end_date - start_date).days + 1
 
         result = {}
         failed_products = []
 
         for product_id in product_ids:
             try:
-
                 predictions_df, total_forecasted_quantity, total_forecasted_amount, engine, product_name = predict_sales(
-                    product_id, store_id=store_id, days_to_forecast=days_to_forecast, start_date=start_date, holiday_dates=holiday_dates
+                    product_id=product_id,
+                    store_id=store_id,
+                    days_to_forecast=days_to_forecast,
+                    start_date=start_date,
+                    holiday_dates=holiday_dates
                 )
 
                 print(f"Product ID: {product_id}, Store ID: {store_id}")
@@ -113,6 +118,7 @@ def predict():
                     engine, product_id, store_id, total_forecasted_quantity
                 )
 
+                # Step 3: Filter predictions based on mode
                 if use_holiday_filter_only:
                     filtered_predictions = predictions_df[
                         pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date.isin(holiday_dates)
@@ -123,6 +129,12 @@ def predict():
                         (pd.to_datetime(predictions_df['date'], dayfirst=True).dt.date <= end_date)
                     ]
 
+                # Step 4: Add holiday name to prediction rows
+                filtered_predictions['holiday_name'] = pd.to_datetime(
+                    filtered_predictions['date'], dayfirst=True
+                ).dt.date.map(lambda d: holiday_dict.get(d, None))
+
+                # Step 5: Store final results
                 result[str(product_id)] = {
                     'predictions': filtered_predictions.to_dict(orient='records'),
                     'total_forecasted_quantity': round(float(total_forecasted_quantity), 2),
@@ -151,6 +163,8 @@ def predict():
             'message': 'Error occurred during prediction',
             'data': [str(e)]
         }), 200
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
