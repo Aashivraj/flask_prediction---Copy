@@ -30,23 +30,23 @@ def create_mysql_connection():
 
 def fetch_product_data(engine, product_id, store_id):
     query = f"""
-        SELECT 
-            pls.id AS pricelookup_store_id,
-            p.id AS pricelookup_id,
-            pls.name AS product_name,
-            DATE(o.created_at) AS sale_date,
-            SUM(d.pricelookup_qty) AS total_quantity_sold,
-            AVG(d.pricelookup_item_price) AS average_selling_price,
-            AVG(p.standard_price) AS standard_price,
-            SUM(d.finalOriginalPrice) AS total_sale_value,
-            AVG(o.total_item) AS average_items_in_order
-        FROM order_store_detail d
-        JOIN orders_store o ON d.order_id = o.id
-        JOIN pricelookup p ON d.pricelookup_id = p.id
-        JOIN pricelookup_store pls ON pls.pricelookup_id = p.id AND pls.store_id = o.store_id
-        WHERE pls.id = {product_id} AND o.store_id = {store_id}
-        GROUP BY pls.id, DATE(o.created_at)
-        ORDER BY DATE(o.created_at);
+    SELECT 
+        pls.id AS pricelookup_store_id,
+        pls.pricelookup_id AS pricelookup_id,
+        pls.name AS product_name,
+        DATE(o.created_at) AS sale_date,
+        SUM(d.pricelookup_qty) AS total_quantity_sold,
+        AVG(d.pricelookup_item_price) AS average_selling_price,
+        AVG(p.standard_price) AS standard_price,
+        SUM(d.finalOriginalPrice) AS total_sale_value,
+        AVG(o.total_item) AS average_items_in_order
+    FROM order_store_detail d
+    JOIN orders_store o ON d.order_id = o.id
+    JOIN pricelookup_store pls ON d.pricelookup_id = pls.id AND pls.store_id = o.store_id
+    JOIN pricelookup p ON pls.pricelookup_id = p.id
+    WHERE pls.id = {product_id} AND o.store_id = {store_id}
+    GROUP BY pls.id, DATE(o.created_at)
+    ORDER BY DATE(o.created_at);
     """
     return pd.read_sql(query, engine)
 
