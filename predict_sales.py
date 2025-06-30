@@ -188,29 +188,35 @@ def predict_sales(product_id, store_id, days_to_forecast=30, start_date=None, ho
 
     return predictions_df, total_forecasted_quantity, total_forecasted_amount, engine, product_name
 
-def get_ingredients_for_product(engine, product_id):
+def get_ingredients_for_product(engine, store_product_id):
     query = f"""
         SELECT p.id AS product_id, p.name AS product_name, 
                i.id AS ingredient_id, i.name AS ingredient_name, 
                pli.qty AS qty_per_product_unit
-        FROM pricelookup p
+        FROM pricelookup_store pls
+        JOIN pricelookup p ON pls.pricelookup_id = p.id
         JOIN pricelookup_ingredient pli ON p.id = pli.pricelookup_id
         JOIN ingredients i ON pli.ingredient_id = i.id
-        WHERE p.id = {product_id};
+        WHERE pls.id = {store_product_id};
     """
     return pd.read_sql(query, engine)
 
-def get_store_stock_for_product_ingredients(engine, product_id, store_id):
+
+def get_store_stock_for_product_ingredients(engine, store_product_id, store_id):
     query = f"""
-        SELECT ingr.id AS ingredient_id, ingr.name AS ingredient_name,
-               pli.qty AS qty_per_product_unit,
-               istd.stockqty, istd.lastweek_left_stockqty,
-               uom.conversion_factor
-        FROM pricelookup_ingredient pli
-        JOIN ingredients ingr ON pli.ingredient_id = ingr.id
-        LEFT JOIN ingredient_store istd ON istd.ingredient_id = ingr.id AND istd.store_id = {store_id}
-        LEFT JOIN unit_of_measures uom ON CASE WHEN ingr.display_uom_id != 0 THEN ingr.display_uom_id ELSE ingr.master_standard_uom END = uom.id
-        WHERE pli.pricelookup_id = {product_id};
+    SELECT ingr.id AS ingredient_id, ingr.name AS ingredient_name,
+           pli.qty AS qty_per_product_unit,
+           (COALESCE(istd.stockqty, 0) + COALESCE(istd.lastweek_left_stockqty, 0)) AS total_stockqty,
+           uom.conversion_factor
+    FROM pricelookup_store pls
+    JOIN pricelookup p ON pls.pricelookup_id = p.id
+    JOIN pricelookup_ingredient pli ON p.id = pli.pricelookup_id
+    JOIN ingredients ingr ON pli.ingredient_id = ingr.id
+    LEFT JOIN ingredient_store istd 
+        ON istd.ingredient_id = ingr.id AND istd.store_id = {store_id}
+    LEFT JOIN unit_of_measures uom 
+        ON ingr.master_standard_uom = uom.id
+    WHERE pls.id = {store_product_id};
     """
     return pd.read_sql(query, engine)
 
@@ -220,13 +226,13 @@ def check_stock_sufficiency(engine, product_id, store_id, total_forecasted_quant
 
     merged_df = pd.merge(
         ingredients_df[['ingredient_id', 'ingredient_name', 'qty_per_product_unit']],
-        stock_df[['ingredient_id', 'ingredient_name', 'qty_per_product_unit', 'stockqty', 'conversion_factor']],
+        stock_df[['ingredient_id', 'ingredient_name', 'qty_per_product_unit', 'total_stockqty', 'conversion_factor']],
         on=['ingredient_id', 'ingredient_name', 'qty_per_product_unit'],
         how='left'
     )
-
+    
     merged_df['required_qty'] = merged_df['qty_per_product_unit'] * total_forecasted_quantity
-    merged_df['adjusted_stockqty'] = merged_df['stockqty'] * merged_df['conversion_factor']
+    merged_df['adjusted_stockqty'] = merged_df['total_stockqty'] / merged_df['conversion_factor']
     merged_df['status'] = np.where(merged_df['adjusted_stockqty'] >= merged_df['required_qty'], 'Sufficient', 'Needs Refill')
 
     return merged_df[['ingredient_name', 'qty_per_product_unit', 'required_qty', 'adjusted_stockqty', 'status']].to_dict(orient='records')

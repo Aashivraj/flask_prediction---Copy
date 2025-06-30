@@ -1,0 +1,5 @@
+ubuntu@ip-172-31-0-59:~/flask$ nohup python3 app.py > flask.log 2>&1 &
+
+
+
+run this in the folder containing app.py and it will work 
